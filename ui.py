@@ -4,16 +4,15 @@
 # Never writes to the file system directly.
 
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 import db
 import models
 
 # ── navigation signals ────────────────────────────────────────────────────────
-# These are returned by screens to tell the caller where to go next.
-NAV_BACK = "NAV_BACK"   # go back one level
-NAV_MAIN = "NAV_MAIN"   # go all the way to the main menu
-NAV_QUIT = "NAV_QUIT"   # exit the app
+NAV_BACK = "NAV_BACK"
+NAV_MAIN = "NAV_MAIN"
+NAV_QUIT = "NAV_QUIT"
 
 # ── terminal helpers ──────────────────────────────────────────────────────────
 
@@ -38,14 +37,11 @@ def pause(message="  Press Enter to continue..."):
 
 
 def nav_hint():
-    print("\n  .back · .main · .quit")
+    print("  .back · .main · .quit")
 
 
 def handle_nav(raw):
-    """
-    Check if user typed a nav command.
-    Returns NAV_BACK, NAV_MAIN, NAV_QUIT, or None.
-    """
+    """Check if user typed a nav command. Returns signal or None."""
     if raw is None:
         return None
     stripped = raw.strip().lower()
@@ -59,7 +55,7 @@ def handle_nav(raw):
 
 
 def prompt(label, hint=""):
-    """Single input line. hint shown in dim text if provided."""
+    """Single input line with optional hint."""
     if hint:
         return input(f"  {label} ({hint}): ").strip()
     return input(f"  {label}: ").strip()
@@ -69,9 +65,8 @@ def prompt(label, hint=""):
 
 def pick_from_list(options, label="Choose", allow_custom=False, default=None):
     """
-    Displays a numbered list. User picks by number, types custom text,
-    or presses Enter for the default.
-
+    Numbered list picker. User picks by number, types custom,
+    or presses Enter for default.
     Returns (chosen_string, None) or (None, NAV_*).
     """
     print()
@@ -80,24 +75,17 @@ def pick_from_list(options, label="Choose", allow_custom=False, default=None):
     if allow_custom:
         print(f"  {len(options) + 1}. Other (type your own)")
 
-    if default:
-        hint = f"Enter for '{default}'"
-    else:
-        hint = "number"
-
+    hint = f"Enter for '{default}'" if default else "number"
     print()
     raw = input(f"  {label} ({hint}): ").strip()
 
-    # nav check
     nav = handle_nav(raw)
     if nav:
         return None, nav
 
-    # Enter — use default
     if raw == "" and default:
         return default, None
 
-    # custom text option
     if allow_custom and raw == str(len(options) + 1):
         custom = input("  Enter custom type: ").strip()
         nav = handle_nav(custom)
@@ -108,7 +96,6 @@ def pick_from_list(options, label="Choose", allow_custom=False, default=None):
             return pick_from_list(options, label, allow_custom, default)
         return custom, None
 
-    # number pick
     try:
         index = int(raw) - 1
         if 0 <= index < len(options):
@@ -117,61 +104,39 @@ def pick_from_list(options, label="Choose", allow_custom=False, default=None):
             print("  Invalid choice. Try again.")
             return pick_from_list(options, label, allow_custom, default)
     except ValueError:
-        # user typed free text — treat as custom if allow_custom, else re-prompt
         if allow_custom and raw:
             return raw, None
         print("  Invalid choice. Try again.")
         return pick_from_list(options, label, allow_custom, default)
 
 
-def pick_subject(prompt_label="Select subject"):
-    """
-    Shows active subjects as a numbered list.
-    Returns (subject_dict, None) or (None, NAV_*).
-    """
-    subjects = db.get_all_subjects()
-    if not subjects:
-        print("\n  No subjects yet. Add one first.")
-        pause()
-        return None, NAV_BACK
-
-    print()
-    for i, s in enumerate(subjects, 1):
-        print(f"  {i}. {s['name']}  [{s['default_type']}]")
-
-    print()
-    raw = input(f"  {prompt_label} (number): ").strip()
-
-    nav = handle_nav(raw)
-    if nav:
-        return None, nav
-
-    try:
-        index = int(raw) - 1
-        if 0 <= index < len(subjects):
-            return subjects[index], None
-        else:
-            print("  Invalid choice.")
-            return pick_subject(prompt_label)
-    except ValueError:
-        print("  Please enter a number.")
-        return pick_subject(prompt_label)
-
-
 # ── home screen ───────────────────────────────────────────────────────────────
 
 def screen_home():
     """
-    Displays today's summary, streak, week total, subject highlights, alerts.
-    Returns a nav signal or None (to show main menu).
+    Shows today's summary, streak, week total, topic highlights, alerts.
+    If no topics exist, shows a first-time welcome instead.
     """
     header("📚  STUDY SESSION TRACKER")
 
+    subjects = db.get_all_subjects()
+
+    # ── first time user ───────────────────────────────────────────────────────
+    if not subjects:
+        print("  Welcome! Let's get you set up.")
+        print()
+        print("  You don't have any topics yet.")
+        print("  A topic is anything you study — a course, a skill,")
+        print("  a language, a project. Start by adding one.")
+        print()
+        return
+
+    # ── returning user ────────────────────────────────────────────────────────
     today = datetime.now().strftime("%Y-%m-%d")
     today_sessions = db.get_sessions_by_date(today)
     today_minutes = sum(s["duration_minutes"] for s in today_sessions)
 
-    # ── TODAY ─────────────────────────────────────────────────────────────────
+    # TODAY
     print("  TODAY")
     line()
     if today_sessions:
@@ -181,20 +146,19 @@ def screen_home():
         print("  No sessions logged today yet.")
     print()
 
-    # ── STREAK ───────────────────────────────────────────────────────────────
+    # STREAK
     streak = db.get_streak()
     print("  STREAK")
     line()
     if streak == 0:
         print("  No active streak. Log a session to start one.")
     elif streak == 1:
-        print(f"  🔥 {streak} day streak — keep it going!")
+        print(f"  🔥 {streak} day — keep it going!")
     else:
-        print(f"  🔥 {streak} day streak — great consistency!")
+        print(f"  🔥 {streak} days — great consistency!")
     print()
 
-    # ── THIS WEEK ─────────────────────────────────────────────────────────────
-    from datetime import date, timedelta
+    # THIS WEEK
     today_date = date.today()
     week_start = (today_date - timedelta(days=today_date.weekday())).isoformat()
     week_end = today_date.isoformat()
@@ -211,37 +175,28 @@ def screen_home():
     print(f"  Time studied : {models.format_duration(week_minutes)}")
     if last_week_minutes > 0:
         diff = week_minutes - last_week_minutes
-        direction = "+" if diff >= 0 else ""
+        direction = "+" if diff >= 0 else "-"
         print(f"  vs last week : {direction}{models.format_duration(abs(diff))} "
               f"({'up' if diff >= 0 else 'down'})")
     print()
 
-    # ── SUBJECTS ──────────────────────────────────────────────────────────────
+    # TOPICS
     totals = db.get_total_minutes_by_subject()
-    subjects = db.get_all_subjects()
-
-    if totals and subjects:
-        print("  SUBJECTS")
+    if totals:
+        print("  TOPICS")
         line()
-        # match ids to names
-        named = []
-        for s in subjects:
-            mins = totals.get(s["id"], 0)
-            named.append((s["name"], mins))
+        named = [(s["name"], totals.get(s["id"], 0)) for s in subjects]
         named.sort(key=lambda x: x[1], reverse=True)
-
-        if named:
-            print(f"  Most studied  : {named[0][0]} ({models.format_duration(named[0][1])})")
+        print(f"  Most studied  : {named[0][0]} ({models.format_duration(named[0][1])})")
         if len(named) > 1 and named[-1][1] > 0:
             print(f"  Least studied : {named[-1][0]} ({models.format_duration(named[-1][1])})")
         print()
 
-    # ── ALERTS ────────────────────────────────────────────────────────────────
+    # ALERTS
     all_sessions = db.get_all_sessions()
     alerts = []
-
     if not all_sessions:
-        alerts.append("No sessions logged yet. Start by adding a subject.")
+        alerts.append("No sessions logged yet. Log your first session.")
     elif streak == 0:
         alerts.append("You haven't studied today or yesterday. Streak at risk.")
 
@@ -253,15 +208,18 @@ def screen_home():
         print()
 
 
-# ── subject screens ───────────────────────────────────────────────────────────
+# ── topic screens ─────────────────────────────────────────────────────────────
 
-def screen_add_subject():
-    header("ADD SUBJECT")
+def screen_add_topic():
+    header("ADD A TOPIC")
     nav_hint()
+    print()
+    print("  A topic is anything you study — a course, a skill,")
+    print("  a language, a personal project, anything.")
     print()
 
     # name
-    name = prompt("Subject name", "e.g. CSCI 201, React Hooks, Spanish B2")
+    name = prompt("Topic name", "e.g. CSCI 201, React, Spanish, DSA")
     nav = handle_nav(name)
     if nav:
         return nav
@@ -270,8 +228,9 @@ def screen_add_subject():
         pause()
         return NAV_BACK
 
-    # default type
-    print("\n  Default session type:")
+    # default session type
+    print("\n  What kind of studying do you usually do for this topic?")
+    print("  This becomes the default — you can always change it per session.")
     session_type, nav = pick_from_list(
         models.SESSION_TYPES,
         label="Type",
@@ -280,54 +239,83 @@ def screen_add_subject():
     if nav:
         return nav
 
-    subject, err = db.create_subject(name, session_type)
+    topic, err = db.create_subject(name, session_type)
     if err:
         print(f"\n  ✗ {err}")
         pause()
         return NAV_BACK
 
-    print(f"\n  ✓ Subject '{subject['name']}' added.")
+    print(f"\n  ✓ '{topic['name']}' added as a {session_type} topic.")
+    print("  You can now log sessions under it.")
     pause()
     return NAV_BACK
 
 
-def screen_view_subjects():
-    header("MY SUBJECTS")
+def screen_view_topics():
+    header("MY TOPICS")
     nav_hint()
+    print()
 
     subjects = db.get_all_subjects()
     if not subjects:
-        print("  No subjects yet.")
+        print("  No topics yet. Add one from the main menu.")
         pause()
         return NAV_BACK
 
     totals = db.get_total_minutes_by_subject()
-    print()
     for s in subjects:
         total = totals.get(s["id"], 0)
+        sessions = db.get_sessions_by_subject(s["id"])
         print(f"  {s['name']}")
-        print(f"    Type     : {s['default_type']}")
-        print(f"    Total    : {models.format_duration(total)}")
-        print(f"    Added    : {models.format_date_display(s['created_date'][:10])}")
+        print(f"    Default type : {s['default_type']}")
+        print(f"    Total time   : {models.format_duration(total)}")
+        print(f"    Sessions     : {len(sessions)}")
+        print(f"    Added        : {models.format_date_display(s['created_date'][:10])}")
         line("·")
 
     pause()
     return NAV_BACK
 
 
-def screen_archive_subject():
-    header("ARCHIVE SUBJECT")
+def screen_archive_topic():
+    header("ARCHIVE A TOPIC")
     nav_hint()
     print()
+    print("  Archiving hides a topic from session logging.")
+    print("  Your past sessions under it are kept.")
+    print()
 
-    subject, nav = pick_subject("Subject to archive")
+    subjects = db.get_all_subjects()
+    if not subjects:
+        print("  No active topics to archive.")
+        pause()
+        return NAV_BACK
+
+    for i, s in enumerate(subjects, 1):
+        print(f"  {i}. {s['name']}  [{s['default_type']}]")
+
+    print()
+    raw = input("  Topic to archive (number): ").strip()
+    nav = handle_nav(raw)
     if nav:
         return nav
 
-    confirm = input(f"\n  Archive '{subject['name']}'? (y/n): ").strip().lower()
+    try:
+        index = int(raw) - 1
+        if not (0 <= index < len(subjects)):
+            print("  Invalid choice.")
+            pause()
+            return NAV_BACK
+    except ValueError:
+        print("  Please enter a number.")
+        pause()
+        return NAV_BACK
+
+    selected = subjects[index]
+    confirm = input(f"\n  Archive '{selected['name']}'? (y/n): ").strip().lower()
     if confirm == "y":
-        db.archive_subject(subject["id"])
-        print(f"  ✓ '{subject['name']}' archived.")
+        db.archive_subject(selected["id"])
+        print(f"  ✓ '{selected['name']}' archived.")
     else:
         print("  Cancelled.")
 
@@ -335,23 +323,75 @@ def screen_archive_subject():
     return NAV_BACK
 
 
-# ── session screens ───────────────────────────────────────────────────────────
+# ── log session screen ────────────────────────────────────────────────────────
 
 def screen_log_session():
-    header("LOG SESSION")
+    """
+    Walks the user through logging a session step by step.
+    If no topics exist, offers to add one first inline.
+    """
+    header("LOG A SESSION")
     nav_hint()
     print()
 
-    # pick subject
-    subject, nav = pick_subject()
+    # guard — no topics yet
+    subjects = db.get_all_subjects()
+    if not subjects:
+        print("  You don't have any topics yet.")
+        print("  Add a topic first so you can log sessions under it.")
+        print()
+        raw = input("  Add a topic now? (y/n): ").strip().lower()
+        if raw == "y":
+            result = screen_add_topic()
+            if result in (NAV_QUIT, NAV_MAIN):
+                return result
+            subjects = db.get_all_subjects()
+            if not subjects:
+                return NAV_BACK
+        else:
+            return NAV_BACK
+
+    # step 1 — pick topic
+    print("  What did you study?")
+    print()
+    for i, s in enumerate(subjects, 1):
+        print(f"  {i}. {s['name']}  [{s['default_type']}]")
+    print(f"  {len(subjects) + 1}. + Add a new topic")
+    print()
+
+    raw = input("  Choose (number): ").strip()
+    nav = handle_nav(raw)
     if nav:
         return nav
 
-    print(f"\n  Subject: {subject['name']}")
+    try:
+        choice = int(raw)
+    except ValueError:
+        print("  Please enter a number.")
+        pause()
+        return NAV_BACK
+
+    if choice == len(subjects) + 1:
+        result = screen_add_topic()
+        if result in (NAV_QUIT, NAV_MAIN):
+            return result
+        subjects = db.get_all_subjects()
+        if not subjects:
+            return NAV_BACK
+        subject = subjects[-1]
+    elif 1 <= choice <= len(subjects):
+        subject = subjects[choice - 1]
+    else:
+        print("  Invalid choice.")
+        pause()
+        return NAV_BACK
+
+    print(f"\n  Topic: {subject['name']}")
     line("·")
 
-    # session type — default from subject, override allowed
-    print(f"\n  Session type  (default: {subject['default_type']}):")
+    # step 2 — session type
+    print(f"\n  What kind of session is this?")
+    print(f"  Default for this topic: {subject['default_type']}")
     session_type, nav = pick_from_list(
         models.SESSION_TYPES,
         label="Type",
@@ -361,9 +401,10 @@ def screen_log_session():
     if nav:
         return nav
 
-    # duration
+    # step 3 — duration
+    print()
     while True:
-        raw = prompt("Duration in minutes", "e.g. 60")
+        raw = prompt("How long did you study?", "minutes, e.g. 60")
         nav = handle_nav(raw)
         if nav:
             return nav
@@ -373,7 +414,7 @@ def screen_log_session():
         else:
             break
 
-    # date
+    # step 4 — date
     while True:
         raw = prompt("Date", "YYYY-MM-DD or Enter for today")
         nav = handle_nav(raw)
@@ -385,8 +426,8 @@ def screen_log_session():
         else:
             break
 
-    # location
-    print("\n  Location:")
+    # step 5 — location
+    print("\n  Where did you study?")
     location, nav = pick_from_list(
         models.LOCATIONS,
         label="Location",
@@ -395,9 +436,10 @@ def screen_log_session():
     if nav:
         return nav
 
-    # rating
+    # step 6 — focus rating
+    print()
     while True:
-        raw = prompt("Focus rating 1-5", "Enter to skip")
+        raw = prompt("How focused were you? (1-5)", "Enter to skip")
         nav = handle_nav(raw)
         if nav:
             return nav
@@ -407,9 +449,9 @@ def screen_log_session():
         else:
             break
 
-    # mood before
+    # step 7 — mood before
     while True:
-        raw = prompt("Mood before (1-5)", "Enter to skip")
+        raw = prompt("Mood before studying (1-5)", "Enter to skip")
         nav = handle_nav(raw)
         if nav:
             return nav
@@ -419,9 +461,9 @@ def screen_log_session():
         else:
             break
 
-    # mood after
+    # step 8 — mood after
     while True:
-        raw = prompt("Mood after (1-5)", "Enter to skip")
+        raw = prompt("Mood after studying (1-5)", "Enter to skip")
         nav = handle_nav(raw)
         if nav:
             return nav
@@ -431,8 +473,8 @@ def screen_log_session():
         else:
             break
 
-    # notes
-    notes = prompt("Notes", "Enter to skip")
+    # step 9 — notes
+    notes = prompt("Any notes?", "Enter to skip")
     nav = handle_nav(notes)
     if nav:
         return nav
@@ -450,26 +492,28 @@ def screen_log_session():
         pause()
         return NAV_BACK
 
-    print(f"\n  ✓ Session logged — {models.format_duration(duration)} of {subject['name']}.")
+    print(f"\n  ✓ Session logged.")
+    print(f"    {subject['name']}  ·  {models.format_duration(duration)}  ·  {models.format_date_display(date_str)}")
     pause()
     return NAV_BACK
 
 
+# ── session history screen ────────────────────────────────────────────────────
+
 def screen_view_sessions():
-    header("SESSION HISTORY")
+    header("MY SESSIONS")
     nav_hint()
     print()
 
-    subjects = db.get_all_subjects(include_archived=True)
-    if not subjects:
-        print("  No subjects yet.")
+    all_subjects = db.get_all_subjects(include_archived=True)
+    if not all_subjects:
+        print("  No topics or sessions yet.")
         pause()
         return NAV_BACK
 
-    # let user filter by subject or see all
     print("  View sessions for:")
-    print("  1. All subjects")
-    for i, s in enumerate(subjects, 2):
+    print("  1. All topics")
+    for i, s in enumerate(all_subjects, 2):
         label = s["name"] + (" [archived]" if s["archived"] else "")
         print(f"  {i}. {label}")
 
@@ -488,9 +532,9 @@ def screen_view_sessions():
 
     if choice == 1:
         sessions = db.get_all_sessions()
-        title = "All Sessions"
-    elif 2 <= choice <= len(subjects) + 1:
-        selected = subjects[choice - 2]
+        title = "All Topics"
+    elif 2 <= choice <= len(all_subjects) + 1:
+        selected = all_subjects[choice - 2]
         sessions = db.get_sessions_by_subject(selected["id"])
         title = selected["name"]
     else:
@@ -499,17 +543,14 @@ def screen_view_sessions():
         return NAV_BACK
 
     if not sessions:
-        print(f"\n  No sessions found for {title}.")
+        print(f"\n  No sessions found.")
         pause()
         return NAV_BACK
 
-    # sort newest first
     sessions = sorted(sessions, key=lambda s: s["date"], reverse=True)
+    subject_map = {s["id"]: s["name"] for s in all_subjects}
 
-    # build subject id → name lookup
-    subject_map = {s["id"]: s["name"] for s in db.get_all_subjects(include_archived=True)}
-
-    print(f"\n  {title}  ({len(sessions)} session{'s' if len(sessions) != 1 else ''})\n")
+    print(f"\n  {title}  —  {len(sessions)} session{'s' if len(sessions) != 1 else ''}\n")
     line()
 
     for s in sessions:
@@ -518,7 +559,7 @@ def screen_view_sessions():
         print(f"    Type     : {s['session_type']}")
         print(f"    Duration : {models.format_duration(s['duration_minutes'])}")
         print(f"    Location : {s['location'] or '—'}")
-        print(f"    Rating   : {models.stars(s['rating'])}")
+        print(f"    Focus    : {models.stars(s['rating'])}")
         print(f"    Mood     : {models.mood_label(s['mood_before'])} → {models.mood_label(s['mood_after'])}")
         if s["notes"]:
             print(f"    Notes    : {s['notes']}")
@@ -528,16 +569,16 @@ def screen_view_sessions():
     return NAV_BACK
 
 
-# ── subjects menu ─────────────────────────────────────────────────────────────
+# ── my topics menu ────────────────────────────────────────────────────────────
 
-def menu_subjects():
+def menu_my_topics():
     while True:
-        header("SUBJECTS")
+        header("MY TOPICS")
         nav_hint()
         print()
-        print("  1. View all subjects")
-        print("  2. Add subject")
-        print("  3. Archive subject")
+        print("  1. View all topics       — see your topics and total time")
+        print("  2. Add a topic           — add something new you study")
+        print("  3. Archive a topic       — hide a topic you no longer study")
         print()
 
         raw = input("  Choice: ").strip()
@@ -546,11 +587,11 @@ def menu_subjects():
             return nav
 
         if raw == "1":
-            result = screen_view_subjects()
+            result = screen_view_topics()
         elif raw == "2":
-            result = screen_add_subject()
+            result = screen_add_topic()
         elif raw == "3":
-            result = screen_archive_subject()
+            result = screen_archive_topic()
         else:
             continue
 
@@ -558,18 +599,17 @@ def menu_subjects():
             return NAV_QUIT
         if result == NAV_MAIN:
             return NAV_MAIN
-        # NAV_BACK just loops back to this menu
 
 
-# ── sessions menu ─────────────────────────────────────────────────────────────
+# ── my sessions menu ──────────────────────────────────────────────────────────
 
-def menu_sessions():
+def menu_my_sessions():
     while True:
-        header("SESSIONS")
+        header("MY SESSIONS")
         nav_hint()
         print()
-        print("  1. Log a session")
-        print("  2. View session history")
+        print("  1. Log a session         — track a new study session")
+        print("  2. View session history  — browse past sessions by topic")
         print()
 
         raw = input("  Choice: ").strip()

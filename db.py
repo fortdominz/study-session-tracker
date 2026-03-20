@@ -14,8 +14,22 @@ def _default_db():
             "version": "1.0"
         },
         "subjects": [],
-        "sessions": []
+        "sessions": [],
+        "deleted_sessions": [],   # permanent log — never cleared
+        "archived_topics": []     # permanent log — never cleared
     }
+
+
+def _migrate(db):
+    """
+    Adds missing keys to existing JSON files so old data
+    is not lost when new fields are introduced.
+    """
+    if "deleted_sessions" not in db:
+        db["deleted_sessions"] = []
+    if "archived_topics" not in db:
+        db["archived_topics"] = []
+    return db
 
 # ── load / save ───────────────────────────────────────────────────────────────
 def load_db():
@@ -24,7 +38,8 @@ def load_db():
         save_db(db)
         return db
     with open(DB_FILE, "r") as f:
-        return json.load(f)
+        db = json.load(f)
+    return _migrate(db)
 
 def save_db(db):
     with open(DB_FILE, "w") as f:
@@ -100,6 +115,33 @@ def update_subject(subject_id, fields):
 
 
 def archive_subject(subject_id):
+    """
+    Archives a topic and writes a permanent snapshot to archived_topics log.
+    Returns (updated_subject, None) or (None, error_message).
+    """
+    db = load_db()
+
+    subject = get_subject_by_id(subject_id)
+    if not subject:
+        return None, "Subject not found."
+
+    # calculate totals at time of archiving
+    total_sessions = len([s for s in db["sessions"] if s["subject_id"] == subject_id])
+    total_minutes = sum(s["duration_minutes"] for s in db["sessions"] if s["subject_id"] == subject_id)
+
+    # write permanent snapshot
+    snapshot = {
+        "id": subject["id"],
+        "name": subject["name"],
+        "default_type": subject["default_type"],
+        "created_date": subject["created_date"],
+        "archived_at": datetime.now().isoformat(),
+        "total_sessions": total_sessions,
+        "total_minutes": total_minutes
+    }
+    db["archived_topics"].append(snapshot)
+    save_db(db)
+
     return update_subject(subject_id, {"archived": True})
 
 
@@ -205,10 +247,24 @@ def update_session(session_id, fields):
 
 
 def delete_session(session_id):
-    """Returns (True, None) on success or (None, error_message) on failure."""
+    """
+    Deletes a session and writes a permanent snapshot to deleted_sessions log.
+    Returns (True, None) on success or (None, error_message) on failure.
+    """
     db = load_db()
     for i, s in enumerate(db["sessions"]):
         if s["id"] == session_id:
+            # capture topic name at time of deletion
+            subject = get_subject_by_id(s["subject_id"])
+            topic_name = subject["name"] if subject else "Unknown (topic deleted)"
+
+            # write permanent snapshot
+            snapshot = {
+                **s,                                        # all session fields
+                "topic_name": topic_name,                  # readable name preserved
+                "deleted_at": datetime.now().isoformat()   # when it was deleted
+            }
+            db["deleted_sessions"].append(snapshot)
             db["sessions"].pop(i)
             save_db(db)
             return True, None
@@ -235,6 +291,26 @@ def get_sessions_in_date_range(start_date, end_date):
         s for s in db["sessions"]
         if start_date <= s["date"] <= end_date
     ]
+
+
+def get_deleted_sessions():
+    """Returns the permanent deleted sessions log, newest first."""
+    db = load_db()
+    return sorted(db["deleted_sessions"], key=lambda s: s["deleted_at"], reverse=True)
+
+
+def get_archived_topics():
+    """Returns the permanent archived topics log, newest first."""
+    db = load_db()
+    return sorted(db["archived_topics"], key=lambda t: t["archived_at"], reverse=True)
+
+
+def unarchive_subject(subject_id):
+    """
+    Restores an archived topic back to active.
+    Returns (updated_subject, None) or (None, error_message).
+    """
+    return update_subject(subject_id, {"archived": False})
 
 
 def get_streak():

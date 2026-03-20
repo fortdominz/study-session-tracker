@@ -111,7 +111,44 @@ def pick_from_list(options, label="Choose", allow_custom=False, default=None):
         return pick_from_list(options, label, allow_custom, default)
 
 
-# ── home screen ───────────────────────────────────────────────────────────────
+# ── sort picker ───────────────────────────────────────────────────────────────
+
+SORT_OPTIONS = [
+    "Date (newest first)",
+    "Date (oldest first)",
+    "Duration (longest first)",
+    "Focus rating (highest first)",
+    "Topic (A→Z)",
+    "Session type (A→Z)"
+]
+
+def pick_sort():
+    """
+    Shows sort options. Returns (sort_key_string, None) or (None, NAV_*).
+    """
+    print("\n  Sort by:")
+    choice, nav = pick_from_list(SORT_OPTIONS, label="Sort", default="Date (newest first)")
+    return choice, nav
+
+
+def apply_sort(sessions, sort_choice, subject_map):
+    """
+    Sorts a list of session dicts by the chosen sort option.
+    subject_map: {subject_id: name} for topic name sorting.
+    """
+    if sort_choice == "Date (newest first)":
+        return sorted(sessions, key=lambda s: s["date"], reverse=True)
+    elif sort_choice == "Date (oldest first)":
+        return sorted(sessions, key=lambda s: s["date"])
+    elif sort_choice == "Duration (longest first)":
+        return sorted(sessions, key=lambda s: s["duration_minutes"], reverse=True)
+    elif sort_choice == "Focus rating (highest first)":
+        return sorted(sessions, key=lambda s: s["rating"] or 0, reverse=True)
+    elif sort_choice == "Topic (A→Z)":
+        return sorted(sessions, key=lambda s: subject_map.get(s["subject_id"], "").lower())
+    elif sort_choice == "Session type (A→Z)":
+        return sorted(sessions, key=lambda s: s["session_type"].lower())
+    return sessions
 
 def screen_home():
     """
@@ -871,10 +908,15 @@ def screen_view_sessions():
         pause()
         return NAV_BACK
 
-    sessions = sorted(sessions, key=lambda s: s["date"], reverse=True)
-    subject_map = {s["id"]: s["name"] for s in all_subjects}
+    # sort picker
+    sort_choice, nav = pick_sort()
+    if nav:
+        return nav
 
-    print(f"\n  {title}  —  {len(sessions)} session{'s' if len(sessions) != 1 else ''}\n")
+    subject_map = {s["id"]: s["name"] for s in all_subjects}
+    sessions = apply_sort(sessions, sort_choice, subject_map)
+
+    print(f"\n  {title}  —  {len(sessions)} session{'s' if len(sessions) != 1 else ''}  [{sort_choice}]\n")
     line()
 
     for s in sessions:
@@ -893,6 +935,94 @@ def screen_view_sessions():
     return NAV_BACK
 
 
+def screen_deleted_sessions_history():
+    header("DELETED SESSIONS")
+    nav_hint()
+
+    deleted = db.get_deleted_sessions()
+    if not deleted:
+        print("  No sessions have been deleted yet.")
+        pause()
+        return NAV_BACK
+
+    print(f"  {len(deleted)} deleted session{'s' if len(deleted) != 1 else ''}  (read-only)\n")
+    line()
+
+    for s in deleted:
+        print(f"  {models.format_date_display(s['date'])}  ·  {s['topic_name']}")
+        print(f"    Type      : {s['session_type']}")
+        print(f"    Duration  : {models.format_duration(s['duration_minutes'])}")
+        print(f"    Location  : {s['location'] or '—'}")
+        print(f"    Focus     : {models.stars(s['rating'])}")
+        print(f"    Mood      : {models.mood_label(s['mood_before'])} → {models.mood_label(s['mood_after'])}")
+        if s["notes"]:
+            print(f"    Notes     : {s['notes']}")
+        print(f"    Logged    : {models.format_date_display(s['created_at'][:10])}")
+        print(f"    Deleted   : {models.format_date_display(s['deleted_at'][:10])}")
+        line("·")
+
+    pause()
+    return NAV_BACK
+
+
+def screen_archived_topics():
+    header("ARCHIVED TOPICS")
+    nav_hint()
+
+    # show archived snapshots (permanent log)
+    archived_log = db.get_archived_topics()
+    # also get the live archived subjects for unarchive option
+    archived_subjects = db.get_all_subjects(include_archived=True)
+    archived_subjects = [s for s in archived_subjects if s["archived"]]
+
+    if not archived_log:
+        print("  No topics have been archived yet.")
+        pause()
+        return NAV_BACK
+
+    print(f"  {len(archived_log)} archived topic{'s' if len(archived_log) != 1 else ''}  (read-only)\n")
+    line()
+
+    for t in archived_log:
+        print(f"  {t['name']}  [{t['default_type']}]")
+        print(f"    Created  : {models.format_date_display(t['created_date'][:10])}")
+        print(f"    Archived : {models.format_date_display(t['archived_at'][:10])}")
+        print(f"    Sessions : {t['total_sessions']}")
+        print(f"    Total    : {models.format_duration(t['total_minutes'])}")
+        line("·")
+
+    # offer to unarchive if there are active archived subjects
+    if archived_subjects:
+        print()
+        raw = input("  Restore a topic? (y/n): ").strip().lower()
+        nav = handle_nav(raw)
+        if nav:
+            return nav
+
+        if raw == "y":
+            print()
+            for i, s in enumerate(archived_subjects, 1):
+                print(f"  {i}. {s['name']}  [{s['default_type']}]")
+            print()
+            raw = input("  Topic to restore (number): ").strip()
+            nav = handle_nav(raw)
+            if nav:
+                return nav
+            try:
+                index = int(raw) - 1
+                if 0 <= index < len(archived_subjects):
+                    selected = archived_subjects[index]
+                    db.unarchive_subject(selected["id"])
+                    print(f"\n  ✓ '{selected['name']}' restored to active topics.")
+                else:
+                    print("  Invalid choice.")
+            except ValueError:
+                print("  Please enter a number.")
+
+    pause()
+    return NAV_BACK
+
+
 # ── my topics menu ────────────────────────────────────────────────────────────
 
 def menu_my_topics():
@@ -903,6 +1033,7 @@ def menu_my_topics():
         print("  2. Add a topic           — add something new you study")
         print("  3. Edit a topic          — rename or change default type")
         print("  4. Archive a topic       — hide a topic you no longer study")
+        print("  5. Archived topics       — view and restore archived topics")
         print()
 
         raw = input("  Choice: ").strip()
@@ -918,6 +1049,8 @@ def menu_my_topics():
             result = screen_edit_topic()
         elif raw == "4":
             result = screen_archive_topic()
+        elif raw == "5":
+            result = screen_archived_topics()
         else:
             continue
 
@@ -933,9 +1066,10 @@ def menu_my_sessions():
     while True:
         header("MY SESSIONS")
         nav_hint()
-        print("  1. View session history  — browse past sessions by topic")
+        print("  1. View session history  — browse and sort past sessions")
         print("  2. Edit a session        — update a field on a past session")
         print("  3. Delete a session      — remove a session permanently")
+        print("  4. Deleted sessions      — view history of deleted sessions")
         print()
 
         raw = input("  Choice: ").strip()
@@ -949,6 +1083,8 @@ def menu_my_sessions():
             result = screen_edit_session()
         elif raw == "3":
             result = screen_delete_session()
+        elif raw == "4":
+            result = screen_deleted_sessions_history()
         else:
             continue
 

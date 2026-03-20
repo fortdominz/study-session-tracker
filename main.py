@@ -5,20 +5,18 @@
 import ui
 import db
 
+
 def main():
     while True:
-        # show home screen
         ui.screen_home()
 
-        # detect first time user — no topics yet
         has_topics = len(db.get_all_subjects()) > 0
 
-        # main menu
         print("  MENU")
         ui.line()
 
         if not has_topics:
-            # first time — guide them to add a topic first
+            # first time user — one option only
             print("  1. Add a Topic           — set up what you study")
             print("  2. Quit")
             print()
@@ -30,18 +28,20 @@ def main():
                 result = ui.screen_add_topic()
                 if result == ui.NAV_QUIT:
                     break
+
         else:
             # returning user — full menu
             print("  1. Add a Topic           — set up what you study")
             print("  2. Log a Session         — track a new study session")
-            print("  3. My Sessions           — view history, edit, delete")
-            print("  4. My Topics             — add, view, archive topics")
-            print("  5. Quit")
+            print("  3. My Sessions           — view, edit, delete sessions")
+            print("  4. My Topics             — add, view, edit, archive topics")
+            print("  5. Analytics             — coming in Phase 4")
+            print("  6. Quit")
             print()
             raw = input("  Choice: ").strip()
 
             nav = ui.handle_nav(raw)
-            if nav == ui.NAV_QUIT or raw == "5":
+            if nav == ui.NAV_QUIT or raw == "6":
                 break
 
             if raw == "1":
@@ -52,12 +52,16 @@ def main():
                 result = ui.menu_my_sessions()
             elif raw == "4":
                 result = ui.menu_my_topics()
+            elif raw == "5":
+                ui.header("ANALYTICS")
+                print("  Analytics coming in Phase 4.")
+                ui.pause()
+                continue
             else:
                 continue
 
             if result == ui.NAV_QUIT:
                 break
-            # NAV_MAIN and NAV_BACK both return to main menu
 
     ui.clear()
     print("\n  See you next session.\n")

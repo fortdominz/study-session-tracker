@@ -38,6 +38,7 @@ def pause(message="  Press Enter to continue..."):
 
 def nav_hint():
     print("  .back · .main · .quit")
+    print()
 
 
 def handle_nav(raw):
@@ -180,9 +181,9 @@ def screen_home():
               f"({'up' if diff >= 0 else 'down'})")
     print()
 
-    # TOPICS
+    # TOPICS — only show if any sessions have been logged
     totals = db.get_total_minutes_by_subject()
-    if totals:
+    if any(v > 0 for v in totals.values()):
         print("  TOPICS")
         line()
         named = [(s["name"], totals.get(s["id"], 0)) for s in subjects]
@@ -213,12 +214,10 @@ def screen_home():
 def screen_add_topic():
     header("ADD A TOPIC")
     nav_hint()
-    print()
     print("  A topic is anything you study — a course, a skill,")
     print("  a language, a personal project, anything.")
     print()
 
-    # name
     name = prompt("Topic name", "e.g. CSCI 201, React, Spanish, DSA")
     nav = handle_nav(name)
     if nav:
@@ -228,7 +227,6 @@ def screen_add_topic():
         pause()
         return NAV_BACK
 
-    # default session type
     print("\n  What kind of studying do you usually do for this topic?")
     print("  This becomes the default — you can always change it per session.")
     session_type, nav = pick_from_list(
@@ -251,10 +249,92 @@ def screen_add_topic():
     return NAV_BACK
 
 
+def screen_edit_topic():
+    header("EDIT A TOPIC")
+    nav_hint()
+
+    subjects = db.get_all_subjects()
+    if not subjects:
+        print("  No active topics to edit.")
+        pause()
+        return NAV_BACK
+
+    for i, s in enumerate(subjects, 1):
+        print(f"  {i}. {s['name']}  [{s['default_type']}]")
+
+    print()
+    raw = input("  Topic to edit (number): ").strip()
+    nav = handle_nav(raw)
+    if nav:
+        return nav
+
+    try:
+        index = int(raw) - 1
+        if not (0 <= index < len(subjects)):
+            print("  Invalid choice.")
+            pause()
+            return NAV_BACK
+    except ValueError:
+        print("  Please enter a number.")
+        pause()
+        return NAV_BACK
+
+    selected = subjects[index]
+
+    # what to edit
+    print(f"\n  Editing: {selected['name']}")
+    line("·")
+    print("  1. Rename topic")
+    print("  2. Change default session type")
+    print("  3. Both")
+    print()
+
+    raw = input("  Choice: ").strip()
+    nav = handle_nav(raw)
+    if nav:
+        return nav
+
+    updates = {}
+
+    if raw in ("1", "3"):
+        new_name = prompt("New name", f"Enter for '{selected['name']}'")
+        nav = handle_nav(new_name)
+        if nav:
+            return nav
+        if new_name:
+            updates["name"] = new_name
+
+    if raw in ("2", "3"):
+        print("\n  New default session type:")
+        new_type, nav = pick_from_list(
+            models.SESSION_TYPES,
+            label="Type",
+            allow_custom=True,
+            default=selected["default_type"]
+        )
+        if nav:
+            return nav
+        updates["default_type"] = new_type
+
+    if not updates:
+        print("  Nothing changed.")
+        pause()
+        return NAV_BACK
+
+    updated, err = db.update_subject(selected["id"], updates)
+    if err:
+        print(f"\n  ✗ {err}")
+        pause()
+        return NAV_BACK
+
+    print(f"\n  ✓ Topic updated.")
+    pause()
+    return NAV_BACK
+
+
 def screen_view_topics():
     header("MY TOPICS")
     nav_hint()
-    print()
 
     subjects = db.get_all_subjects()
     if not subjects:
@@ -280,7 +360,6 @@ def screen_view_topics():
 def screen_archive_topic():
     header("ARCHIVE A TOPIC")
     nav_hint()
-    print()
     print("  Archiving hides a topic from session logging.")
     print("  Your past sessions under it are kept.")
     print()
@@ -313,11 +392,15 @@ def screen_archive_topic():
 
     selected = subjects[index]
     confirm = input(f"\n  Archive '{selected['name']}'? (y/n): ").strip().lower()
+    nav = handle_nav(confirm)
+    if nav:
+        return nav
+
     if confirm == "y":
         db.archive_subject(selected["id"])
-        print(f"  ✓ '{selected['name']}' archived.")
+        print(f"\n  ✓ '{selected['name']}' archived.")
     else:
-        print("  Cancelled.")
+        print("\n  Cancelled.")
 
     pause()
     return NAV_BACK
@@ -332,7 +415,6 @@ def screen_log_session():
     """
     header("LOG A SESSION")
     nav_hint()
-    print()
 
     # guard — no topics yet
     subjects = db.get_all_subjects()
@@ -341,6 +423,9 @@ def screen_log_session():
         print("  Add a topic first so you can log sessions under it.")
         print()
         raw = input("  Add a topic now? (y/n): ").strip().lower()
+        nav = handle_nav(raw)
+        if nav:
+            return nav
         if raw == "y":
             result = screen_add_topic()
             if result in (NAV_QUIT, NAV_MAIN):
@@ -498,12 +583,251 @@ def screen_log_session():
     return NAV_BACK
 
 
-# ── session history screen ────────────────────────────────────────────────────
+# ── edit session screen ───────────────────────────────────────────────────────
+
+def screen_edit_session():
+    header("EDIT A SESSION")
+    nav_hint()
+
+    all_subjects = db.get_all_subjects(include_archived=True)
+    sessions = db.get_all_sessions()
+
+    if not sessions:
+        print("  No sessions logged yet.")
+        pause()
+        return NAV_BACK
+
+    # show sessions — newest first
+    subject_map = {s["id"]: s["name"] for s in all_subjects}
+    sessions_sorted = sorted(sessions, key=lambda s: s["date"], reverse=True)
+
+    # show last 10 to keep the list manageable
+    display = sessions_sorted[:10]
+    print("  Which session do you want to edit?")
+    print()
+    for i, s in enumerate(display, 1):
+        sub_name = subject_map.get(s["subject_id"], "Unknown")
+        print(f"  {i}. {models.format_date_display(s['date'])}  ·  {sub_name}  ·  {models.format_duration(s['duration_minutes'])}")
+
+    print()
+    raw = input("  Choose (number): ").strip()
+    nav = handle_nav(raw)
+    if nav:
+        return nav
+
+    try:
+        index = int(raw) - 1
+        if not (0 <= index < len(display)):
+            print("  Invalid choice.")
+            pause()
+            return NAV_BACK
+    except ValueError:
+        print("  Please enter a number.")
+        pause()
+        return NAV_BACK
+
+    session = display[index]
+    sub_name = subject_map.get(session["subject_id"], "Unknown")
+
+    # show current values and let user pick what to edit
+    print(f"\n  Session: {models.format_date_display(session['date'])}  ·  {sub_name}")
+    line("·")
+    print(f"  1. Duration    [{models.format_duration(session['duration_minutes'])}]")
+    print(f"  2. Date        [{models.format_date_display(session['date'])}]")
+    print(f"  3. Type        [{session['session_type']}]")
+    print(f"  4. Location    [{session['location'] or '—'}]")
+    print(f"  5. Focus       [{models.stars(session['rating'])}]")
+    print(f"  6. Mood before [{models.mood_label(session['mood_before'])}]")
+    print(f"  7. Mood after  [{models.mood_label(session['mood_after'])}]")
+    print(f"  8. Notes       [{session['notes'] or '—'}]")
+    print()
+
+    raw = input("  Field to edit (number): ").strip()
+    nav = handle_nav(raw)
+    if nav:
+        return nav
+
+    updates = {}
+
+    if raw == "1":
+        while True:
+            val = prompt("New duration", "minutes")
+            nav = handle_nav(val)
+            if nav:
+                return nav
+            duration, err = models.validate_duration(val)
+            if err:
+                print(f"  ✗ {err}")
+            else:
+                updates["duration_minutes"] = duration
+                break
+
+    elif raw == "2":
+        while True:
+            val = prompt("New date", "YYYY-MM-DD")
+            nav = handle_nav(val)
+            if nav:
+                return nav
+            date_str, err = models.validate_date(val)
+            if err:
+                print(f"  ✗ {err}")
+            else:
+                updates["date"] = date_str
+                break
+
+    elif raw == "3":
+        print("\n  New session type:")
+        new_type, nav = pick_from_list(
+            models.SESSION_TYPES,
+            label="Type",
+            allow_custom=True,
+            default=session["session_type"]
+        )
+        if nav:
+            return nav
+        updates["session_type"] = new_type
+
+    elif raw == "4":
+        print("\n  New location:")
+        new_loc, nav = pick_from_list(
+            models.LOCATIONS,
+            label="Location",
+            default=session["location"] or "Home"
+        )
+        if nav:
+            return nav
+        updates["location"] = new_loc
+
+    elif raw == "5":
+        while True:
+            val = prompt("New focus rating (1-5)", "Enter to clear")
+            nav = handle_nav(val)
+            if nav:
+                return nav
+            rating, err = models.validate_rating(val)
+            if err:
+                print(f"  ✗ {err}")
+            else:
+                updates["rating"] = rating
+                break
+
+    elif raw == "6":
+        while True:
+            val = prompt("New mood before (1-5)", "Enter to clear")
+            nav = handle_nav(val)
+            if nav:
+                return nav
+            mood, err = models.validate_mood(val, "Mood before")
+            if err:
+                print(f"  ✗ {err}")
+            else:
+                updates["mood_before"] = mood
+                break
+
+    elif raw == "7":
+        while True:
+            val = prompt("New mood after (1-5)", "Enter to clear")
+            nav = handle_nav(val)
+            if nav:
+                return nav
+            mood, err = models.validate_mood(val, "Mood after")
+            if err:
+                print(f"  ✗ {err}")
+            else:
+                updates["mood_after"] = mood
+                break
+
+    elif raw == "8":
+        val = prompt("New notes", "Enter to clear")
+        nav = handle_nav(val)
+        if nav:
+            return nav
+        updates["notes"] = val if val else None
+
+    else:
+        print("  Invalid choice.")
+        pause()
+        return NAV_BACK
+
+    updated, err = db.update_session(session["id"], updates)
+    if err:
+        print(f"\n  ✗ {err}")
+        pause()
+        return NAV_BACK
+
+    print(f"\n  ✓ Session updated.")
+    pause()
+    return NAV_BACK
+
+
+# ── delete session screen ─────────────────────────────────────────────────────
+
+def screen_delete_session():
+    header("DELETE A SESSION")
+    nav_hint()
+
+    all_subjects = db.get_all_subjects(include_archived=True)
+    sessions = db.get_all_sessions()
+
+    if not sessions:
+        print("  No sessions logged yet.")
+        pause()
+        return NAV_BACK
+
+    subject_map = {s["id"]: s["name"] for s in all_subjects}
+    sessions_sorted = sorted(sessions, key=lambda s: s["date"], reverse=True)
+    display = sessions_sorted[:10]
+
+    print("  Which session do you want to delete?")
+    print()
+    for i, s in enumerate(display, 1):
+        sub_name = subject_map.get(s["subject_id"], "Unknown")
+        print(f"  {i}. {models.format_date_display(s['date'])}  ·  {sub_name}  ·  {models.format_duration(s['duration_minutes'])}")
+
+    print()
+    raw = input("  Choose (number): ").strip()
+    nav = handle_nav(raw)
+    if nav:
+        return nav
+
+    try:
+        index = int(raw) - 1
+        if not (0 <= index < len(display)):
+            print("  Invalid choice.")
+            pause()
+            return NAV_BACK
+    except ValueError:
+        print("  Please enter a number.")
+        pause()
+        return NAV_BACK
+
+    session = display[index]
+    sub_name = subject_map.get(session["subject_id"], "Unknown")
+
+    print(f"\n  {models.format_date_display(session['date'])}  ·  {sub_name}  ·  {models.format_duration(session['duration_minutes'])}")
+    confirm = input("\n  Delete this session? This cannot be undone. (y/n): ").strip().lower()
+    nav = handle_nav(confirm)
+    if nav:
+        return nav
+
+    if confirm == "y":
+        _, err = db.delete_session(session["id"])
+        if err:
+            print(f"\n  ✗ {err}")
+        else:
+            print(f"\n  ✓ Session deleted.")
+    else:
+        print("\n  Cancelled.")
+
+    pause()
+    return NAV_BACK
+
+
+# ── view sessions screen ──────────────────────────────────────────────────────
 
 def screen_view_sessions():
     header("MY SESSIONS")
     nav_hint()
-    print()
 
     all_subjects = db.get_all_subjects(include_archived=True)
     if not all_subjects:
@@ -575,10 +899,10 @@ def menu_my_topics():
     while True:
         header("MY TOPICS")
         nav_hint()
-        print()
         print("  1. View all topics       — see your topics and total time")
         print("  2. Add a topic           — add something new you study")
-        print("  3. Archive a topic       — hide a topic you no longer study")
+        print("  3. Edit a topic          — rename or change default type")
+        print("  4. Archive a topic       — hide a topic you no longer study")
         print()
 
         raw = input("  Choice: ").strip()
@@ -591,6 +915,8 @@ def menu_my_topics():
         elif raw == "2":
             result = screen_add_topic()
         elif raw == "3":
+            result = screen_edit_topic()
+        elif raw == "4":
             result = screen_archive_topic()
         else:
             continue
@@ -607,9 +933,9 @@ def menu_my_sessions():
     while True:
         header("MY SESSIONS")
         nav_hint()
-        print()
-        print("  1. Log a session         — track a new study session")
-        print("  2. View session history  — browse past sessions by topic")
+        print("  1. View session history  — browse past sessions by topic")
+        print("  2. Edit a session        — update a field on a past session")
+        print("  3. Delete a session      — remove a session permanently")
         print()
 
         raw = input("  Choice: ").strip()
@@ -618,9 +944,11 @@ def menu_my_sessions():
             return nav
 
         if raw == "1":
-            result = screen_log_session()
-        elif raw == "2":
             result = screen_view_sessions()
+        elif raw == "2":
+            result = screen_edit_session()
+        elif raw == "3":
+            result = screen_delete_session()
         else:
             continue
 

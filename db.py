@@ -324,13 +324,11 @@ def get_streak():
     if not db["sessions"]:
         return 0
 
-    # collect unique dates with sessions
     study_dates = set(s["date"] for s in db["sessions"])
 
     streak = 0
     check = date.today()
 
-    # allow streak to count if last session was yesterday (so today not penalised yet)
     if check.isoformat() not in study_dates:
         check -= timedelta(days=1)
 
@@ -339,3 +337,138 @@ def get_streak():
         check -= timedelta(days=1)
 
     return streak
+
+
+def get_longest_streak():
+    """
+    Returns the longest streak of consecutive study days ever recorded.
+    """
+    from datetime import date, timedelta
+
+    db = load_db()
+    if not db["sessions"]:
+        return 0
+
+    study_dates = sorted(set(s["date"] for s in db["sessions"]))
+    if not study_dates:
+        return 0
+
+    longest = 1
+    current = 1
+
+    for i in range(1, len(study_dates)):
+        prev = datetime.strptime(study_dates[i - 1], "%Y-%m-%d").date()
+        curr = datetime.strptime(study_dates[i], "%Y-%m-%d").date()
+        if (curr - prev).days == 1:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 1
+
+    return longest
+
+
+def get_most_productive_day():
+    """
+    Returns the day of the week with the most total study minutes.
+    Returns (day_name, total_minutes) or (None, 0) if no sessions.
+    """
+    db = load_db()
+    if not db["sessions"]:
+        return None, 0
+
+    day_totals = {}
+    for s in db["sessions"]:
+        day = datetime.strptime(s["date"], "%Y-%m-%d").strftime("%A")
+        day_totals[day] = day_totals.get(day, 0) + s["duration_minutes"]
+
+    best_day = max(day_totals, key=day_totals.get)
+    return best_day, day_totals[best_day]
+
+
+def get_most_productive_location():
+    """
+    Returns the location with the most total study minutes.
+    Returns (location, total_minutes) or (None, 0) if no sessions.
+    """
+    db = load_db()
+    sessions_with_location = [s for s in db["sessions"] if s.get("location")]
+    if not sessions_with_location:
+        return None, 0
+
+    loc_totals = {}
+    for s in sessions_with_location:
+        loc = s["location"]
+        loc_totals[loc] = loc_totals.get(loc, 0) + s["duration_minutes"]
+
+    best = max(loc_totals, key=loc_totals.get)
+    return best, loc_totals[best]
+
+
+def get_minutes_by_session_type():
+    """Returns {session_type: total_minutes}."""
+    db = load_db()
+    totals = {}
+    for s in db["sessions"]:
+        t = s["session_type"]
+        totals[t] = totals.get(t, 0) + s["duration_minutes"]
+    return totals
+
+
+def get_mood_insights():
+    """
+    Returns a dict with mood analytics from sessions where both
+    mood_before and mood_after were recorded.
+    {
+        avg_before: float or None,
+        avg_after: float or None,
+        improved: int,
+        same: int,
+        dropped: int,
+        total_with_mood: int
+    }
+    """
+    db = load_db()
+    mood_sessions = [
+        s for s in db["sessions"]
+        if s.get("mood_before") is not None and s.get("mood_after") is not None
+    ]
+
+    if not mood_sessions:
+        return {
+            "avg_before": None,
+            "avg_after": None,
+            "improved": 0,
+            "same": 0,
+            "dropped": 0,
+            "total_with_mood": 0
+        }
+
+    avg_before = sum(s["mood_before"] for s in mood_sessions) / len(mood_sessions)
+    avg_after = sum(s["mood_after"] for s in mood_sessions) / len(mood_sessions)
+
+    improved = sum(1 for s in mood_sessions if s["mood_after"] > s["mood_before"])
+    same = sum(1 for s in mood_sessions if s["mood_after"] == s["mood_before"])
+    dropped = sum(1 for s in mood_sessions if s["mood_after"] < s["mood_before"])
+
+    return {
+        "avg_before": round(avg_before, 1),
+        "avg_after": round(avg_after, 1),
+        "improved": improved,
+        "same": same,
+        "dropped": dropped,
+        "total_with_mood": len(mood_sessions)
+    }
+
+
+def get_avg_rating_by_subject():
+    """Returns {subject_id: avg_rating} for subjects with at least one rated session."""
+    db = load_db()
+    rated = {}
+    counts = {}
+    for s in db["sessions"]:
+        if s.get("rating") is not None:
+            sid = s["subject_id"]
+            rated[sid] = rated.get(sid, 0) + s["rating"]
+            counts[sid] = counts.get(sid, 0) + 1
+    return {sid: round(rated[sid] / counts[sid], 1) for sid in rated}

@@ -35,7 +35,7 @@ def main():
             print("  2. Log a Session         — track a new study session")
             print("  3. My Sessions           — view, edit, delete sessions")
             print("  4. My Topics             — add, view, edit, archive topics")
-            print("  5. Analytics             — coming in Phase 4")
+            print("  5. Analytics             — insights across all your sessions")
             print("  6. Quit")
             print()
             raw = input("  Choice: ").strip()
@@ -53,10 +53,7 @@ def main():
             elif raw == "4":
                 result = ui.menu_my_topics()
             elif raw == "5":
-                ui.header("ANALYTICS")
-                print("  Analytics coming in Phase 4.")
-                ui.pause()
-                continue
+                result = ui.screen_analytics()
             else:
                 continue
 

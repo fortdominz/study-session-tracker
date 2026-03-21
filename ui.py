@@ -111,6 +111,101 @@ def pick_from_list(options, label="Choose", allow_custom=False, default=None):
         return pick_from_list(options, label, allow_custom, default)
 
 
+def screen_analytics():
+    header("ANALYTICS")
+    nav_hint()
+
+    sessions = db.get_all_sessions()
+    subjects = db.get_all_subjects(include_archived=True)
+
+    if not sessions:
+        print("  No sessions logged yet.")
+        print("  Log some sessions and come back for insights.")
+        pause()
+        return NAV_BACK
+
+    subject_map = {s["id"]: s["name"] for s in subjects}
+
+    # ── OVERALL ───────────────────────────────────────────────────────────────
+    print("  OVERALL")
+    line()
+    total_sessions = len(sessions)
+    total_minutes = sum(s["duration_minutes"] for s in sessions)
+    avg_minutes = total_minutes // total_sessions
+    longest = max(sessions, key=lambda s: s["duration_minutes"])
+    longest_name = subject_map.get(longest["subject_id"], "Unknown")
+
+    print(f"  Total sessions  : {total_sessions}")
+    print(f"  Total time      : {models.format_duration(total_minutes)}")
+    print(f"  Avg session     : {models.format_duration(avg_minutes)}")
+    print(f"  Longest session : {models.format_duration(longest['duration_minutes'])}  ({longest_name}, {models.format_date_display(longest['date'])})")
+    print()
+
+    # ── BY TOPIC ──────────────────────────────────────────────────────────────
+    print("  BY TOPIC")
+    line()
+    totals_by_subject = db.get_total_minutes_by_subject()
+    avg_by_subject = db.get_avg_rating_by_subject()
+
+    if totals_by_subject:
+        ranked = sorted(totals_by_subject.items(), key=lambda x: x[1], reverse=True)
+        for sid, mins in ranked:
+            name = subject_map.get(sid, "Unknown")
+            avg_r = avg_by_subject.get(sid)
+            rating_str = f"  avg focus {models.stars(round(avg_r))}" if avg_r else ""
+            print(f"  {name}")
+            print(f"    {models.format_duration(mins)}{rating_str}")
+    print()
+
+    # ── BY SESSION TYPE ───────────────────────────────────────────────────────
+    print("  BY SESSION TYPE")
+    line()
+    type_totals = db.get_minutes_by_session_type()
+    if type_totals:
+        ranked_types = sorted(type_totals.items(), key=lambda x: x[1], reverse=True)
+        for stype, mins in ranked_types:
+            # simple bar — 1 block per 30 minutes, max 20 blocks
+            blocks = min(mins // 30, 20)
+            bar = "█" * blocks if blocks > 0 else "▏"
+            print(f"  {stype:<14} {bar}  {models.format_duration(mins)}")
+    print()
+
+    # ── STREAKS & CONSISTENCY ─────────────────────────────────────────────────
+    print("  STREAKS & CONSISTENCY")
+    line()
+    current_streak = db.get_streak()
+    longest_streak = db.get_longest_streak()
+    best_day, best_day_mins = db.get_most_productive_day()
+    best_loc, best_loc_mins = db.get_most_productive_location()
+
+    print(f"  Current streak  : {current_streak} day{'s' if current_streak != 1 else ''}")
+    print(f"  Longest streak  : {longest_streak} day{'s' if longest_streak != 1 else ''}")
+    if best_day:
+        print(f"  Best day        : {best_day} ({models.format_duration(best_day_mins)} total)")
+    if best_loc:
+        print(f"  Best location   : {best_loc} ({models.format_duration(best_loc_mins)} total)")
+    print()
+
+    # ── MOOD INSIGHTS ─────────────────────────────────────────────────────────
+    mood = db.get_mood_insights()
+    if mood["total_with_mood"] > 0:
+        print("  MOOD INSIGHTS")
+        line()
+        print(f"  Based on {mood['total_with_mood']} session{'s' if mood['total_with_mood'] != 1 else ''} with mood recorded")
+        print(f"  Avg mood before : {mood['avg_before']} / 5")
+        print(f"  Avg mood after  : {mood['avg_after']} / 5")
+        delta = round(mood["avg_after"] - mood["avg_before"], 1)
+        direction = "↑ up" if delta > 0 else ("↓ down" if delta < 0 else "→ unchanged")
+        print(f"  Overall delta   : {direction} {abs(delta)}")
+        print(f"  Improved        : {mood['improved']} session{'s' if mood['improved'] != 1 else ''}")
+        print(f"  Stayed same     : {mood['same']} session{'s' if mood['same'] != 1 else ''}")
+        print(f"  Dropped         : {mood['dropped']} session{'s' if mood['dropped'] != 1 else ''}")
+        print()
+
+    pause()
+    return NAV_BACK
+
+
 # ── sort picker ───────────────────────────────────────────────────────────────
 
 SORT_OPTIONS = [

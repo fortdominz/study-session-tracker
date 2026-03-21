@@ -10,6 +10,31 @@ SESSION_TYPES = ["Course", "Self-Study", "Research", "Practice"]
 
 LOCATIONS = ["Library", "Home", "Café", "Classroom", "Other"]
 
+# ── colors ────────────────────────────────────────────────────────────────────
+# Used across ui.py for consistent styling. Import from here, never hardcode.
+
+RESET   = "\033[0m"
+BOLD    = "\033[1m"
+DIM     = "\033[2m"
+
+GREEN   = "\033[92m"
+YELLOW  = "\033[93m"
+BLUE    = "\033[94m"
+MAGENTA = "\033[95m"
+CYAN    = "\033[96m"
+WHITE   = "\033[97m"
+RED     = "\033[91m"
+
+def c(text, color):
+    """Wrap text in a color code and reset."""
+    return f"{color}{text}{RESET}"
+
+def bold(text):
+    return f"{BOLD}{text}{RESET}"
+
+def dim(text):
+    return f"{DIM}{text}{RESET}"
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def validate_duration(raw):

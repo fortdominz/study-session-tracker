@@ -26,14 +26,14 @@ def line(char="─", width=55):
 
 def header(title):
     clear()
-    line("═")
-    print(f"  {title}")
-    line("═")
+    print(models.c("  " + "═" * 53, models.CYAN))
+    print(f"  {models.bold(models.c(title, models.CYAN))}")
+    print(models.c("  " + "═" * 53, models.CYAN))
     print()
 
 
 def pause(message="  Press Enter to continue..."):
-    input(message)
+    input(models.dim(message))
 
 
 def nav_hint():
@@ -112,7 +112,7 @@ def pick_from_list(options, label="Choose", allow_custom=False, default=None):
 
 
 def screen_analytics():
-    header("ANALYTICS")
+    header("📊  ANALYTICS")
     nav_hint()
 
     sessions = db.get_all_sessions()
@@ -127,7 +127,7 @@ def screen_analytics():
     subject_map = {s["id"]: s["name"] for s in subjects}
 
     # ── OVERALL ───────────────────────────────────────────────────────────────
-    print("  OVERALL")
+    print(models.bold(models.c("  OVERALL", models.YELLOW)))
     line()
     total_sessions = len(sessions)
     total_minutes = sum(s["duration_minutes"] for s in sessions)
@@ -135,71 +135,99 @@ def screen_analytics():
     longest = max(sessions, key=lambda s: s["duration_minutes"])
     longest_name = subject_map.get(longest["subject_id"], "Unknown")
 
-    print(f"  Total sessions  : {total_sessions}")
-    print(f"  Total time      : {models.format_duration(total_minutes)}")
-    print(f"  Avg session     : {models.format_duration(avg_minutes)}")
-    print(f"  Longest session : {models.format_duration(longest['duration_minutes'])}  ({longest_name}, {models.format_date_display(longest['date'])})")
+    print(f"  Total sessions  : {models.c(str(total_sessions), models.GREEN)}")
+    print(f"  Total time      : {models.c(models.format_duration(total_minutes), models.GREEN)}")
+    print(f"  Avg session     : {models.c(models.format_duration(avg_minutes), models.CYAN)}")
+    print(f"  Longest session : {models.c(models.format_duration(longest['duration_minutes']), models.CYAN)}"
+          f"  {models.dim(longest_name + ', ' + models.format_date_display(longest['date']))}")
     print()
 
     # ── BY TOPIC ──────────────────────────────────────────────────────────────
-    print("  BY TOPIC")
+    print(models.bold(models.c("  BY TOPIC", models.MAGENTA)))
     line()
     totals_by_subject = db.get_total_minutes_by_subject()
     avg_by_subject = db.get_avg_rating_by_subject()
 
     if totals_by_subject:
         ranked = sorted(totals_by_subject.items(), key=lambda x: x[1], reverse=True)
+        max_mins = ranked[0][1] if ranked else 1
         for sid, mins in ranked:
             name = subject_map.get(sid, "Unknown")
             avg_r = avg_by_subject.get(sid)
-            rating_str = f"  avg focus {models.stars(round(avg_r))}" if avg_r else ""
-            print(f"  {name}")
-            print(f"    {models.format_duration(mins)}{rating_str}")
+            # bar scaled to longest topic, max 20 blocks
+            blocks = max(1, round((mins / max_mins) * 20))
+            bar = models.c("█" * blocks, models.GREEN)
+            rating_str = f"  {models.c(models.stars(round(avg_r)), models.YELLOW)}" if avg_r else ""
+            print(f"  {models.c(name, models.CYAN)}")
+            print(f"    {bar}  {models.c(models.format_duration(mins), models.WHITE)}{rating_str}")
     print()
 
     # ── BY SESSION TYPE ───────────────────────────────────────────────────────
-    print("  BY SESSION TYPE")
+    print(models.bold(models.c("  BY SESSION TYPE", models.BLUE)))
     line()
     type_totals = db.get_minutes_by_session_type()
     if type_totals:
+        max_type_mins = max(type_totals.values())
         ranked_types = sorted(type_totals.items(), key=lambda x: x[1], reverse=True)
+        type_colors = {
+            "Course":     models.CYAN,
+            "Self-Study": models.GREEN,
+            "Research":   models.MAGENTA,
+            "Practice":   models.YELLOW,
+        }
         for stype, mins in ranked_types:
-            # simple bar — 1 block per 30 minutes, max 20 blocks
-            blocks = min(mins // 30, 20)
-            bar = "█" * blocks if blocks > 0 else "▏"
-            print(f"  {stype:<14} {bar}  {models.format_duration(mins)}")
+            color = type_colors.get(stype, models.WHITE)
+            blocks = max(1, round((mins / max_type_mins) * 20))
+            bar = models.c("█" * blocks, color)
+            print(f"  {models.c(f'{stype:<14}', color)} {bar}  {models.format_duration(mins)}")
     print()
 
     # ── STREAKS & CONSISTENCY ─────────────────────────────────────────────────
-    print("  STREAKS & CONSISTENCY")
+    print(models.bold(models.c("  STREAKS & CONSISTENCY", models.BLUE)))
     line()
     current_streak = db.get_streak()
     longest_streak = db.get_longest_streak()
     best_day, best_day_mins = db.get_most_productive_day()
     best_loc, best_loc_mins = db.get_most_productive_location()
 
-    print(f"  Current streak  : {current_streak} day{'s' if current_streak != 1 else ''}")
-    print(f"  Longest streak  : {longest_streak} day{'s' if longest_streak != 1 else ''}")
+    streak_color = models.GREEN if current_streak >= 3 else models.YELLOW if current_streak > 0 else models.RED
+    streak_label = f"🔥 {current_streak} day" + ("s" if current_streak != 1 else "")
+    longest_label = f"{longest_streak} day" + ("s" if longest_streak != 1 else "")
+    print(f"  Current streak  : {models.c(streak_label, streak_color)}")
+    print(f"  Longest streak  : {models.c(longest_label, models.YELLOW)}")
     if best_day:
-        print(f"  Best day        : {best_day} ({models.format_duration(best_day_mins)} total)")
+        print(f"  Best day        : {models.c(best_day, models.CYAN)}  {models.dim(models.format_duration(best_day_mins) + ' total')}")
     if best_loc:
-        print(f"  Best location   : {best_loc} ({models.format_duration(best_loc_mins)} total)")
+        print(f"  Best location   : {models.c(best_loc, models.CYAN)}  {models.dim(models.format_duration(best_loc_mins) + ' total')}")
     print()
 
     # ── MOOD INSIGHTS ─────────────────────────────────────────────────────────
     mood = db.get_mood_insights()
     if mood["total_with_mood"] > 0:
-        print("  MOOD INSIGHTS")
+        print(models.bold(models.c("  MOOD INSIGHTS", models.MAGENTA)))
         line()
-        print(f"  Based on {mood['total_with_mood']} session{'s' if mood['total_with_mood'] != 1 else ''} with mood recorded")
-        print(f"  Avg mood before : {mood['avg_before']} / 5")
-        print(f"  Avg mood after  : {mood['avg_after']} / 5")
+        mood_count = mood["total_with_mood"]
+        mood_label = f"Based on {mood_count} session" + ("s" if mood_count != 1 else "") + " with mood recorded"
+        print(f"  {models.dim(mood_label)}")
+
+        before_color = models.YELLOW
+        after_color  = models.GREEN if mood["avg_after"] >= mood["avg_before"] else models.RED
         delta = round(mood["avg_after"] - mood["avg_before"], 1)
-        direction = "↑ up" if delta > 0 else ("↓ down" if delta < 0 else "→ unchanged")
-        print(f"  Overall delta   : {direction} {abs(delta)}")
-        print(f"  Improved        : {mood['improved']} session{'s' if mood['improved'] != 1 else ''}")
-        print(f"  Stayed same     : {mood['same']} session{'s' if mood['same'] != 1 else ''}")
-        print(f"  Dropped         : {mood['dropped']} session{'s' if mood['dropped'] != 1 else ''}")
+        if delta > 0:
+            delta_str = models.c(f"↑ up {abs(delta)}", models.GREEN)
+        elif delta < 0:
+            delta_str = models.c(f"↓ down {abs(delta)}", models.RED)
+        else:
+            delta_str = models.dim("→ unchanged")
+
+        print(f"  Avg mood        : {models.c(str(mood['avg_before']), before_color)} → {models.c(str(mood['avg_after']), after_color)}  {delta_str}")
+
+        improved_label = str(mood["improved"]) + " session" + ("s" if mood["improved"] != 1 else "")
+        same_label     = str(mood["same"])     + " session" + ("s" if mood["same"]     != 1 else "")
+        dropped_label  = str(mood["dropped"])  + " session" + ("s" if mood["dropped"]  != 1 else "")
+        print(f"  Improved        : {models.c(improved_label, models.GREEN)}")
+        print(f"  Stayed same     : {models.dim(same_label)}")
+        print(f"  Dropped         : {models.c(dropped_label, models.RED)}")
         print()
 
     pause()
@@ -270,25 +298,25 @@ def screen_home():
     today_minutes = sum(s["duration_minutes"] for s in today_sessions)
 
     # TODAY
-    print("  TODAY")
+    print(models.bold(models.c("  TODAY", models.YELLOW)))
     line()
     if today_sessions:
-        print(f"  Sessions logged : {len(today_sessions)}")
-        print(f"  Time studied    : {models.format_duration(today_minutes)}")
+        print(f"  Sessions logged : {models.c(str(len(today_sessions)), models.GREEN)}")
+        print(f"  Time studied    : {models.c(models.format_duration(today_minutes), models.GREEN)}")
     else:
-        print("  No sessions logged today yet.")
+        print(models.dim("  No sessions logged today yet."))
     print()
 
     # STREAK
     streak = db.get_streak()
-    print("  STREAK")
+    print(models.bold(models.c("  STREAK", models.YELLOW)))
     line()
     if streak == 0:
-        print("  No active streak. Log a session to start one.")
+        print(models.dim("  No active streak. Log a session to start one."))
     elif streak == 1:
-        print(f"  🔥 {streak} day — keep it going!")
+        print(f"  {models.c(f'🔥 {streak} day — keep it going!', models.YELLOW)}")
     else:
-        print(f"  🔥 {streak} days — great consistency!")
+        print(f"  {models.c(f'🔥 {streak} days — great consistency!', models.GREEN)}")
     print()
 
     # THIS WEEK
@@ -303,26 +331,27 @@ def screen_home():
     last_week_sessions = db.get_sessions_in_date_range(last_week_start, last_week_end)
     last_week_minutes = sum(s["duration_minutes"] for s in last_week_sessions)
 
-    print("  THIS WEEK")
+    print(models.bold(models.c("  THIS WEEK", models.YELLOW)))
     line()
-    print(f"  Time studied : {models.format_duration(week_minutes)}")
+    print(f"  Time studied : {models.c(models.format_duration(week_minutes), models.GREEN)}")
     if last_week_minutes > 0:
         diff = week_minutes - last_week_minutes
-        direction = "+" if diff >= 0 else "-"
-        print(f"  vs last week : {direction}{models.format_duration(abs(diff))} "
-              f"({'up' if diff >= 0 else 'down'})")
+        diff_color = models.GREEN if diff >= 0 else models.RED
+        direction = "up" if diff >= 0 else "down"
+        sign = "+" if diff >= 0 else "-"
+        print(f"  vs last week : {models.c(sign + models.format_duration(abs(diff)) + ' ' + direction, diff_color)}")
     print()
 
-    # TOPICS — only show if any sessions have been logged
+    # TOPICS
     totals = db.get_total_minutes_by_subject()
     if any(v > 0 for v in totals.values()):
-        print("  TOPICS")
+        print(models.bold(models.c("  TOPICS", models.YELLOW)))
         line()
         named = [(s["name"], totals.get(s["id"], 0)) for s in subjects]
         named.sort(key=lambda x: x[1], reverse=True)
-        print(f"  Most studied  : {named[0][0]} ({models.format_duration(named[0][1])})")
+        print(f"  Most studied  : {models.c(named[0][0], models.CYAN)}  {models.dim(models.format_duration(named[0][1]))}")
         if len(named) > 1 and named[-1][1] > 0:
-            print(f"  Least studied : {named[-1][0]} ({models.format_duration(named[-1][1])})")
+            print(f"  Least studied : {models.c(named[-1][0], models.CYAN)}  {models.dim(models.format_duration(named[-1][1]))}")
         print()
 
     # ALERTS
@@ -334,10 +363,10 @@ def screen_home():
         alerts.append("You haven't studied today or yesterday. Streak at risk.")
 
     if alerts:
-        print("  ALERTS")
+        print(models.bold(models.c("  ALERTS", models.RED)))
         line()
         for alert in alerts:
-            print(f"  ⚠  {alert}")
+            print(f"  {models.c('⚠  ' + alert, models.RED)}")
         print()
 
 

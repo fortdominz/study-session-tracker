@@ -234,6 +234,125 @@ def screen_analytics():
     return NAV_BACK
 
 
+def screen_export():
+    header("EXPORT TO CSV")
+    nav_hint()
+
+    sessions = db.get_all_sessions()
+    if not sessions:
+        print("  No sessions to export yet.")
+        pause()
+        return NAV_BACK
+
+    # export scope
+    print("  Export sessions for:")
+    print("  1. All topics")
+    all_subjects = db.get_all_subjects(include_archived=True)
+    for i, s in enumerate(all_subjects, 2):
+        label = s["name"] + (models.dim(" [archived]") if s["archived"] else "")
+        print(f"  {i}. {label}")
+
+    print()
+    raw = input("  Choice (number): ").strip()
+    nav = handle_nav(raw)
+    if nav:
+        return nav
+
+    try:
+        choice = int(raw)
+    except ValueError:
+        print("  Invalid choice.")
+        pause()
+        return NAV_BACK
+
+    if choice == 1:
+        subject_id = None
+        label = "all_sessions"
+        title = "All Topics"
+    elif 2 <= choice <= len(all_subjects) + 1:
+        selected = all_subjects[choice - 2]
+        subject_id = selected["id"]
+        label = selected["name"].lower().replace(" ", "_")
+        title = selected["name"]
+    else:
+        print("  Invalid choice.")
+        pause()
+        return NAV_BACK
+
+    # default filename
+    from datetime import datetime
+    date_stamp = datetime.now().strftime("%Y%m%d")
+    default_filename = f"study_sessions_{label}_{date_stamp}.csv"
+
+    print()
+    raw = prompt("Save as", f"Enter for '{default_filename}'")
+    nav = handle_nav(raw)
+    if nav:
+        return nav
+
+    filename = raw if raw else default_filename
+    if not filename.endswith(".csv"):
+        filename += ".csv"
+
+    filepath, count, err = db.export_to_csv(filename, subject_id)
+    if err:
+        print(f"\n  {models.c('✗ ' + err, models.RED)}")
+        pause()
+        return NAV_BACK
+
+    print(f"\n  {models.c('✓ Exported ' + str(count) + ' session' + ('s' if count != 1 else '') + '.', models.GREEN)}")
+    print(f"  {models.dim('File: ' + filepath)}")
+    pause()
+    return NAV_BACK
+
+
+def screen_help():
+    header("HELP")
+    nav_hint()
+
+    print(models.bold(models.c("  NAVIGATION", models.CYAN)))
+    line()
+    print(f"  {models.c('.back', models.YELLOW)}   — go back one screen")
+    print(f"  {models.c('.main', models.YELLOW)}   — return to the main menu")
+    print(f"  {models.c('.quit', models.YELLOW)}   — exit the app")
+    print(f"  These work at any prompt, any screen.")
+    print()
+
+    print(models.bold(models.c("  LOGGING SESSIONS", models.CYAN)))
+    line()
+    print("  Select 'Log a Session' from the main menu.")
+    print("  Pick a topic, then answer each prompt.")
+    print("  Press Enter to skip optional fields (mood, notes, rating).")
+    print("  Press Enter on date to use today.")
+    print("  Press Enter on session type to use your topic's default.")
+    print()
+
+    print(models.bold(models.c("  TOPICS", models.CYAN)))
+    line()
+    print("  A topic is anything you study — a course, a skill, a project.")
+    print("  Each topic has a default session type used when logging.")
+    print("  Archived topics are hidden from session logging but kept in history.")
+    print("  Archived topics can be restored from My Topics → Archived Topics.")
+    print()
+
+    print(models.bold(models.c("  HISTORY & DATA", models.CYAN)))
+    line()
+    print("  Deleted sessions are kept permanently under My Sessions → Deleted Sessions.")
+    print("  Archived topic snapshots are kept under My Topics → Archived Topics.")
+    print("  Nothing is ever fully erased — only hidden or moved.")
+    print()
+
+    print(models.bold(models.c("  EXPORT", models.CYAN)))
+    line()
+    print("  Export your sessions to a CSV file from the main menu.")
+    print("  Export all topics or filter by one topic.")
+    print("  The file saves to the same folder as the app.")
+    print()
+
+    pause()
+    return NAV_BACK
+
+
 # ── sort picker ───────────────────────────────────────────────────────────────
 
 SORT_OPTIONS = [

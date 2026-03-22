@@ -472,3 +472,64 @@ def get_avg_rating_by_subject():
             rated[sid] = rated.get(sid, 0) + s["rating"]
             counts[sid] = counts.get(sid, 0) + 1
     return {sid: round(rated[sid] / counts[sid], 1) for sid in rated}
+
+
+# ── csv export ────────────────────────────────────────────────────────────────
+
+def export_to_csv(filename, subject_id=None):
+    """
+    Exports sessions to a CSV file.
+    If subject_id is given, exports only that topic's sessions.
+    If subject_id is None, exports all sessions.
+    Returns (filepath, row_count, None) on success or (None, 0, error_message).
+    """
+    import csv
+
+    db = load_db()
+
+    # build subject lookup
+    subject_map = {s["id"]: s["name"] for s in db["subjects"]}
+
+    # filter sessions
+    if subject_id:
+        sessions = [s for s in db["sessions"] if s["subject_id"] == subject_id]
+    else:
+        sessions = db["sessions"]
+
+    if not sessions:
+        return None, 0, "No sessions to export."
+
+    # sort by date newest first
+    sessions = sorted(sessions, key=lambda s: s["date"], reverse=True)
+
+    # write CSV
+    try:
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+
+            # header row
+            writer.writerow([
+                "Date", "Topic", "Session Type", "Duration (min)",
+                "Location", "Focus Rating", "Mood Before", "Mood After",
+                "Notes", "Logged At"
+            ])
+
+            # data rows
+            for s in sessions:
+                writer.writerow([
+                    s["date"],
+                    subject_map.get(s["subject_id"], "Unknown"),
+                    s["session_type"],
+                    s["duration_minutes"],
+                    s["location"] or "",
+                    s["rating"] or "",
+                    s["mood_before"] or "",
+                    s["mood_after"] or "",
+                    s["notes"] or "",
+                    s["created_at"][:10]
+                ])
+
+        return filename, len(sessions), None
+
+    except Exception as e:
+        return None, 0, str(e)
